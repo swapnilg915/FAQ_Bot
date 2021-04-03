@@ -1,0 +1,13 @@
+requests
+numpy
+pandas
+nltk
+spacy==2.2
+gensim
+pyemd
+sklearn
+flask
+flasgger
+xlrd
+openpyxl
+
