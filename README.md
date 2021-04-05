@@ -15,15 +15,22 @@ setup the project environment
 	and keep it in any directory and update that path in config.py file. 
 
 Training:
-	1. keep your faq data ready in a xlsx file format with 2 columns namely "Question" and "Answer". The sample data used in this project is available in "dataset" folder.
+	1. keep your faq data ready in :
+		A] xlsx file format with 2 columns namely "Question" and "Answer".
+		B] pdf file with a format same as of the file "structured_faq.pdf" in dataset folder.
+
+		The sample data used in this project is available in "dataset" folder.
+	
 	2. In browser run: http://0.0.0.0:5000/upload
-	3. Provide the necessary inputs like language and model name, select the appropriate path of xlsx file and click upload.
+	3. Provide the necessary inputs like language and model name, select the appropriate path of xlsx / pdf file and click upload.
 		Note:Please save the model name somewhere. It will be usefull for prediction.
 	4. Thats it!!!training is done.
 
 Prediction: 
 	1. In browser run: http://0.0.0.0:5000/predict
-	2. Provide the necessary inputs along with a question and hit "Get Answer". Thats it!!!
+	2. Provide the necessary inputs along with a question and hit "Get Answer". You will get an asnwer along with the confidence score.
+
+	Thats it!!!
 
 
 NOTE: The data used for this project is downloaded from microsoft azure website. It is used only for study purpose: https://docs.microsoft.com/en-us/azure/cognitive-services/QnAMaker/concepts/data-sources-and-content

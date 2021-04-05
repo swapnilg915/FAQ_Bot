@@ -18,6 +18,12 @@ from werkzeug.utils import secure_filename
 from excel_bot.excel_worker import ExcelSemanticSimilarity
 excel_worker_obj = ExcelSemanticSimilarity()
 
+from pdf_bot.data_maker.pdf_processor import PdfProcessor
+pdf_processor_obj = PdfProcessor()
+
+from pdf_bot.qna_worker import AnswerQuestion
+qna_worker_obj = AnswerQuestion()
+
 from helper.cleaning_pipeline import Preprocessing
 cleaning_pipeline_obj = Preprocessing()
 
@@ -86,7 +92,7 @@ def train():
 			flash('File successfully uploaded')
 
 			### decide pdf / excel
-			train_excel(input_dict)
+			decider(input_dict)
 			
 			return redirect('/upload')
 			# return redirect(request.url)
@@ -95,12 +101,44 @@ def train():
 			return redirect(request.url)
 
 
+def decider(input_dict):
+	"""
+	this function checks file type and decides whether to train excel bot or pdf bot.
+	"""
+	if input_dict["file_path"].endswith('pdf') or input_dict["file_path"].endswith('doc') or input_dict["file_path"].endswith('docx'):
+		input_dict["model_type"] = "pdf"
+		train_pdf(input_dict)
+
+	elif input_dict["file_path"].endswith('xlsx') or input_dict["file_path"].endswith('csv'):
+		input_dict["model_type"] = "excel"
+		train_excel(input_dict)
+		
+
 def train_excel(input_dict):
 	"""
 	train bot on excel file
 	"""
 	excel_worker_obj.train(input_dict)
 
+
+def train_pdf(input_dict):
+	"""
+	train bot on pdf file
+	"""
+	#1. extract text
+	data_json, solr_json_name, solr_json_path = pdf_processor_obj.main(input_dict["file_path"])
+	
+	#2. train model
+	path = os.path.join(solr_json_path)
+	qna_worker_obj.train(path, input_dict["lang"], input_dict["model_type"], input_dict["model_name"])
+
+
+def read_training_files(bot_base_path, input_dict):
+	json_base_path = os.path.join(bot_base_path, input_dict["model_name"], input_dict["lang"], "training_data_jsons")
+	training_docs = json.load(open(os.path.join(json_base_path, "sentences_with_id_" + input_dict["model_name"] + ".json")))['sentences']
+	id_to_dic = json.load(open(os.path.join(json_base_path, "id_to_dic_" + input_dict["model_name"] + ".json")))
+	id_to_ans = json.load(open(os.path.join(json_base_path, "id_to_ans_" + input_dict["model_name"] + ".json")))
+	return training_docs, id_to_dic, id_to_ans
 
 
 @app.route('/predict', methods=['POST', 'GET'])
@@ -122,32 +160,63 @@ def main():
 			print("\n api input --- ", input_dict["query"], input_dict["lang"])
 			query_token = cleaning_pipeline_obj.cleaning_pipeline(input_dict)
 
-			bot_base_path = "bots"
-			models_path = os.path.join(bot_base_path, input_dict["model_name"], input_dict["lang"], "trained_models", input_dict["model_name"] + ".model")
-			load_time = time.time()
-			instance_wmd = gensim.similarities.docsim.Similarity.load(models_path)
-			print("\n time to load model --- ", time.time() - load_time)
-			json_base_path = os.path.join(bot_base_path, input_dict["model_name"], input_dict["lang"], "training_data_jsons")
-			training_sentences = json.load(open(os.path.join(json_base_path, "training_sentences_" + input_dict["model_name"] + ".json")))['sentences']
-			qna_dict = json.load(open(os.path.join(json_base_path, "qna_dict.json")))
-			wmd_sims = instance_wmd[query_token]
-			wmd_sims = sorted(enumerate(wmd_sims), key=lambda item: -item[1])
-			similar_docs = [(s, training_sentences[i])  for i,s in wmd_sims]
-			top_answers = similar_docs[:3]
-			print("\n top_answer --- ",top_answers)
-			if top_answers:
-				top_ans = qna_dict[top_answers[0][1]]
-				top_ans = top_ans.replace("<p>", "").replace("</p>", "")
-				top_ans = top_ans.strip()
-				top_ans_tuple = [(top_answers[0][0], top_ans)]
-				print("\n top ans === ", top_ans_tuple)
-			else:
-				top_ans_tuple = [(0.0, "Answer not found!")]
+			if input_dict["model_type"] == "pdf":
+
+				# read training files
+				bot_base_path = "bots"
+				models_path = os.path.join(bot_base_path, input_dict["model_name"], input_dict["lang"], "trained_models", input_dict["model_name"] + ".model")
+				training_docs, id_to_dic, id_to_ans = read_training_files(bot_base_path, input_dict)
+
+				# exact_match = direct_match(query_token, training_docs)
+
+				load_time = time.time()
+				instance_wmd = gensim.similarities.docsim.Similarity.load(models_path)
+				print("\n time to load model --- ", time.time() - load_time)
+				
+				# json_base_path = os.path.join(bot_base_path, input_dict["model_name"], input_dict["lang"], "training_data_jsons")
+				# training_docs = json.load(open(os.path.join(json_base_path, "sentences_with_id_" + input_dict["model_name"] + ".json")))['sentences']
+				# id_to_dic = json.load(open(os.path.join(json_base_path, "id_to_dic_" + input_dict["model_name"] + ".json")))
+				# id_to_ans = json.load(open(os.path.join(json_base_path, "id_to_ans_" + input_dict["model_name"] + ".json")))
+
+				wmd_sims = instance_wmd[query_token]
+				wmd_sims = sorted(enumerate(wmd_sims), key=lambda item: -item[1])
+
+				similar_docs = [(score, training_docs[idx]) for idx, score in wmd_sims[:3]]
+				similar_docs = [(tpl[0], id_to_ans[str(tpl[1]["my_id"])]) if str(tpl[1]["my_id"]) in id_to_ans else (tpl[0], id_to_dic[str(tpl[1]["my_id"] + 1)]["text"]) for tpl in similar_docs]
+
+				top_answers = similar_docs[:1]
+				print("\n top_answers : ", top_answers)
+				top_ans_tuple = top_answers
+
+
+			elif input_dict["model_type"] == "excel":
+				bot_base_path = "bots"
+				models_path = os.path.join(bot_base_path, input_dict["model_name"], input_dict["lang"], "trained_models", input_dict["model_name"] + ".model")
+				load_time = time.time()
+				instance_wmd = gensim.similarities.docsim.Similarity.load(models_path)
+				print("\n time to load model --- ", time.time() - load_time)
+				json_base_path = os.path.join(bot_base_path, input_dict["model_name"], input_dict["lang"], "training_data_jsons")
+				training_sentences = json.load(open(os.path.join(json_base_path, "training_sentences_" + input_dict["model_name"] + ".json")))['sentences']
+				qna_dict = json.load(open(os.path.join(json_base_path, "qna_dict.json")))
+				wmd_sims = instance_wmd[query_token]
+				wmd_sims = sorted(enumerate(wmd_sims), key=lambda item: -item[1])
+				similar_docs = [(s, training_sentences[i])  for i,s in wmd_sims]
+				top_answers = similar_docs[:3]
+				print("\n top_answer --- ",top_answers)
+				if top_answers:
+					top_ans = qna_dict[top_answers[0][1]]
+					top_ans = top_ans.replace("<p>", "").replace("</p>", "")
+					top_ans = top_ans.strip()
+					top_ans_tuple = [(top_answers[0][0], top_ans)]
+					print("\n top ans === ", top_ans_tuple)
+				else:
+					top_ans_tuple = [(0.0, "Answer not found!")]
+
 			print("\n total prediction time --- ", time.time() - st)
 
 	except Exception as e:
 		print("\n Error in qnamaker API main() --- ", e, "\n ",traceback.format_exc())
-
+		top_ans_tuple = [(0.0, "Something went wrong! please check your inputs and Try again!".upper())]
 	return render_template('result.html',query=orig_query, len=len(top_ans_tuple),prediction = top_ans_tuple)
 
 
