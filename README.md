@@ -19,7 +19,7 @@ Training:
 		A] xlsx file format with 2 columns namely "Question" and "Answer".
 		B] pdf file with a format same as of the file "structured_faq.pdf" in dataset folder.
 
-		The sample data used in this project is available in "dataset" folder.
+	The sample data used in this project is available in "dataset" folder.
 	
 	2. In browser run: http://0.0.0.0:5000/upload
 	3. Provide the necessary inputs like language and model name, select the appropriate path of xlsx / pdf file and click upload.
